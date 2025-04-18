@@ -16,12 +16,15 @@ pipeline {
         stage('Run git-secrets scan') {
             steps {
                 script {
-                    // Initialize git-secrets and register AWS patterns
-                    bat 'git secrets --install || echo "git-secrets already installed."'
-                    bat 'git secrets --register-aws || echo "AWS patterns already registered."'
-
-                    // Run git-secrets scan
-                    bat 'git secrets --scan --recursive || echo "Potential secrets found by git-secrets."'
+                    try {
+                        bat 'git secrets --install'
+                        bat 'git secrets --register-aws'
+                        bat 'git secrets --scan --recursive'
+                    } catch (err) {
+                        echo 'Potential secrets found by git-secrets.'
+                        // Mark stage as unstable
+                        currentBuild.result = 'UNSTABLE'
+                    }
                 }
             }
         }
@@ -29,8 +32,12 @@ pipeline {
         stage('Run Gitleaks scan') {
             steps {
                 script {
-                    // Run Gitleaks scan and save results in JSON format
-                    bat "gitleaks detect --source . --report-format json --report-path %GITLEAKS_REPORT% || echo 'Potential secrets found by Gitleaks.'"
+                    try {
+                        bat "gitleaks detect --source . --report-format json --report-path %GITLEAKS_REPORT%"
+                    } catch (err) {
+                        echo 'Potential secrets found by Gitleaks.'
+                        currentBuild.result = 'UNSTABLE'
+                    }
                 }
             }
         }
@@ -38,8 +45,12 @@ pipeline {
         stage('Run TruffleHog scan') {
             steps {
                 script {
-                    // Run TruffleHog scan and output JSON results
-                    bat "trufflehog filesystem . --json > %TRUFFLEHOG_REPORT% || echo 'Potential secrets found by TruffleHog.'"
+                    try {
+                        bat "trufflehog filesystem . --json > %TRUFFLEHOG_REPORT%"
+                    } catch (err) {
+                        echo 'Potential secrets found by TruffleHog.'
+                        currentBuild.result = 'UNSTABLE'
+                    }
                 }
             }
         }
@@ -51,7 +62,10 @@ pipeline {
             echo 'Secrets scan completed. Reports have been archived.'
         }
         failure {
-            echo 'Secret scanning detected potential issues!'
+            echo 'Secret scanning detected critical issues!'
+        }
+        unstable {
+            echo 'Secret scanning flagged issues. Please review the reports.'
         }
     }
 }
